@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catch the Falling Stars</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        
+        .game-container {
+            text-align: center;
+        }
+        
+        canvas {
+            border: 2px solid #ffd700;
+            background: linear-gradient(180deg, #001122, #003366);
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        
+        .ui {
+            display: flex;
+            justify-content: space-between;
+            width: 800px;
+            margin-bottom: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .instructions {
+            margin-top: 15px;
+            font-size: 14px;
+            opacity: 0.8;
+        }
+        
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        
+        button {
+            background: #ffd700;
+            color: #1a1a2e;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 15px;
+        }
+        
+        button:hover {
+            background: #ffed4e;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="ui">
+            <div>Score: <span id="score">0</span></div>
+            <div>Time: <span id="timer">60</span>s</div>
+            <div>High Score: <span id="highScore">0</span></div>
+        </div>
+        
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        
+        <div class="instructions">
+            Use arrow keys ← → to move the basket and catch falling stars!
+        </div>
+        
+        <div class="game-over" id="gameOver">
+            <h2>Game Over!</h2>
+            <p>Final Score: <span id="finalScore">0</span></p>
+            <button onclick="startGame()">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Global game state variables
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        let gameRunning = false;
+        let score = 0;
+        let timeLeft = 60;
+        let highScore = 0;
+        let gameSpeed = 1;
+        
+        // Game objects
+        const basket = {
+            x: 375,
+            y: 550,
+            width: 50,
+            height: 20,
+            speed: 8
+        };
+        
+        let stars = [];
+        let keys = {};
+        let gameTimer;
+        let spawnTimer;
+        
+        // Initialize high score from memory
+        function initHighScore() {
+            // Using a simple variable since localStorage isn't available
+            highScore = 0;
+            document.getElementById('highScore').textContent = highScore;
+        }
+        
+        // Handle keyboard input
+        function setupControls() {
+            document.addEventListener('keydown', (e) => {
+                keys[e.key] = true;
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                keys[e.key] = false;
+            });
+        }
+        
+        // Create a new falling star
+        function createStar() {
+            return {
+                x: Math.random() * (canvas.width - 20),
+                y: -20,
+                size: 15,
+                speed: 2 + gameSpeed,
+                caught: false
+            };
+        }
+        
+        // Draw a five-point star
+        function drawStar(x, y, size) {
+            ctx.save();
+            ctx.fillStyle = '#ffd700';
+            ctx.strokeStyle = '#ffed4e';
+            ctx.lineWidth = 2;
+            
+            ctx.beginPath();
+            const spikes = 5;
+            const outerRadius = size;
+            const innerRadius = size * 0.4;
+            
+            for (let i = 0; i < spikes * 2; i++) {
+                const angle = (i * Math.PI) / spikes;
+                const radius = i % 2 === 0 ? outerRadius : innerRadius;
+                const pointX = x + Math.cos(angle) * radius;
+                const pointY = y + Math.sin(angle) * radius;
+                
+                if (i === 0) {
+                    ctx.moveTo(pointX, pointY);
+                } else {
+                    ctx.lineTo(pointX, pointY);
+                }
+            }
+            
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+        }
+        
+        // Draw the basket
+        function drawBasket() {
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(basket.x, basket.y, basket.width, basket.height);
+            
+            // Basket rim
+            ctx.fillStyle = '#A0522D';
+            ctx.fillRect(basket.x - 2, basket.y - 2, basket.width + 4, 4);
+        }
+        
+        // Update basket position based on input
+        function updateBasket() {
+            if (keys['ArrowLeft'] && basket.x > 0) {
+                basket.x -= basket.speed;
+            }
+            if (keys['ArrowRight'] && basket.x < canvas.width - basket.width) {
+                basket.x += basket.speed;
+            }
+        }
+        
+        // Update all stars positions and check collisions
+        function updateStars() {
+            for (let i = stars.length - 1; i >= 0; i--) {
+                const star = stars[i];
+                star.y += star.speed;
+                
+                // Check collision with basket
+                if (!star.caught && 
+                    star.x < basket.x + basket.width &&
+                    star.x + star.size > basket.x &&
+                    star.y < basket.y + basket.height &&
+                    star.y + star.size > basket.y) {
+                    
+                    star.caught = true;
+                    score++;
+                    document.getElementById('score').textContent = score;
+                    stars.splice(i, 1);
+                    continue;
+                }
+                
+                // Remove stars that fell off screen
+                if (star.y > canvas.height) {
+                    stars.splice(i, 1);
+                }
+            }
+        }
+        
+        // Spawn new stars at random intervals
+        function spawnStars() {
+            if (Math.random() < 0.02 + (gameSpeed * 0.01)) {
+                stars.push(createStar());
+            }
+        }
+        
+        // Increase difficulty every 15 seconds
+        function updateDifficulty() {
+            const timeElapsed = 60 - timeLeft;
+            gameSpeed = 1 + Math.floor(timeElapsed / 15) * 0.5;
+        }
+        
+        // Main game loop
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Update game objects
+            updateBasket();
+            updateStars();
+            spawnStars();
+            updateDifficulty();
+            
+            // Draw everything
+            drawBasket();
+            stars.forEach(star => drawStar(star.x, star.y, star.size));
+            
+            // Continue game loop
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Game timer countdown
+        function startTimer() {
+            gameTimer = setInterval(() => {
+                timeLeft--;
+                document.getElementById('timer').textContent = timeLeft;
+                
+                if (timeLeft <= 0) {
+                    endGame();
+                }
+            }, 1000);
+        }
+        
+        // End the game
+        function endGame() {
+            gameRunning = false;
+            clearInterval(gameTimer);
+            
+            // Update high score
+            if (score > highScore) {
+                highScore = score;
+                document.getElementById('highScore').textContent = highScore;
+            }
+            
+            // Show game over screen
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('gameOver').style.display = 'block';
+        }
+        
+        // Start or restart the game
+        function startGame() {
+            // Reset game state
+            gameRunning = true;
+            score = 0;
+            timeLeft = 60;
+            gameSpeed = 1;
+            stars = [];
+            basket.x = 375;
+            
+            // Update UI
+            document.getElementById('score').textContent = score;
+            document.getElementById('timer').textContent = timeLeft;
+            document.getElementById('gameOver').style.display = 'none';
+            
+            // Start game systems
+            startTimer();
+            gameLoop();
+        }
+        
+        // Initialize game
+        function init() {
+            initHighScore();
+            setupControls();
+            startGame();
+        }
+        
+        // Start the game when page loads
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
